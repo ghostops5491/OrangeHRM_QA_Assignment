@@ -24,4 +24,6 @@ class Config:
     AI_FAILURE_ANALYSIS = os.getenv("AI_FAILURE_ANALYSIS", "true").lower() == "true"
     TRACES_DIR = os.getenv("TRACES_DIR", "reports/traces")
     VIDEOS_DIR = os.getenv("VIDEOS_DIR", "reports/videos_failures")
+    AUTO_OPEN_REPORT = os.getenv("AUTO_OPEN_REPORT", "true").lower() == "true"
+
 
