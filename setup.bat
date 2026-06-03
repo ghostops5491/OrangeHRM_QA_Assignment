@@ -70,9 +70,21 @@ echo =================================================================
 echo                  Setup Completed Successfully!
 echo =================================================================
 echo.
-echo To run your BDD tests:
-echo 1. Activate venv:    .venv\Scripts\activate.bat
-echo 2. Run all tests:    python run_tests.py
-echo 3. Run with report:  python run_tests.py --report
+echo First, activate the virtual environment:
+echo   .venv\Scripts\activate.bat
+echo.
+echo Available Test Execution Commands:
+echo   - Run all tests:             python run_tests.py
+echo   - Run in parallel:           python run_tests.py --parallel
+echo   - Run specific tag:          python run_tests.py --tags @smoke
+echo   - Run with Allure report:    python run_tests.py --report
+echo   - Rerun failed tests only:   python run_tests.py --rerun
+echo   - Run specific feature file: behave features/user_management.feature
+echo.
+echo You can also combine options:
+echo   - Run @smoke in parallel:    python run_tests.py --parallel --tags @smoke
+echo.
+echo CLI Usage Signature:
+echo   usage: run_tests.py [-h] [--tags TAGS] [--report] [--parallel] [--workers WORKERS] [--rerun]
 echo.
 pause
