@@ -17,20 +17,47 @@ class BasePage:
         logger.info(f"Navigating to {url}")
         self.page.goto(url, wait_until="domcontentloaded", timeout=Config.TIMEOUT)
     
+    def _get_element(self, locator: Locator, timeout: int = Config.TIMEOUT) -> Locator:
+        try:
+            locator.wait_for(state="visible", timeout=timeout)
+            return locator
+        except Exception as e:
+            if not Config.AI_SELF_HEALING:
+                raise e
+            
+            logger.warning(f"Element visibility check failed for locator: {locator}. Starting AI self-healing...")
+            try:
+                screenshot_bytes = self.page.screenshot()
+                from utils.self_healing import SelfHealingEngine
+                healed_locator = SelfHealingEngine.find_alternative_locator(
+                    self.page,
+                    str(locator),
+                    str(e),
+                    screenshot_bytes
+                )
+                if healed_locator:
+                    logger.info("AI self-healing suggested alternative locator. Waiting for it...")
+                    healed_locator.wait_for(state="visible", timeout=timeout)
+                    return healed_locator
+            except Exception as healing_err:
+                logger.error(f"Error during AI self-healing execution: {healing_err}")
+                
+            raise e
+
     def click(self, locator: Locator):
-        locator.wait_for(state="visible", timeout=Config.TIMEOUT)
-        locator.click()
+        el = self._get_element(locator)
+        el.click()
     
     def fill(self, locator: Locator, text: str):
-        locator.wait_for(state="visible", timeout=Config.TIMEOUT)
-        locator.fill(text)
+        el = self._get_element(locator)
+        el.fill(text)
     
     def get_text(self, locator: Locator) -> str:
-        locator.wait_for(state="visible", timeout=Config.TIMEOUT)
-        return locator.text_content()
+        el = self._get_element(locator)
+        return el.text_content()
     
     def wait_for_element(self, locator: Locator, timeout: int = Config.TIMEOUT):
-        locator.wait_for(state="visible", timeout=timeout)
+        self._get_element(locator, timeout=timeout)
     
     def is_visible(self, locator: Locator, timeout: int = 5000) -> bool:
         try:
@@ -38,3 +65,4 @@ class BasePage:
             return True
         except:
             return False
+

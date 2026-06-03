@@ -17,3 +17,11 @@ class Config:
     PARALLEL_WORKERS = int(os.getenv("PARALLEL_WORKERS", "3"))
     ALLURE_RESULTS_DIR = os.getenv("ALLURE_RESULTS_DIR", "reports/allure-results")
     LOGS_DIR = os.getenv("LOGS_DIR", "logs")
+    
+    # AI and Resiliency Configuration
+    GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+    AI_SELF_HEALING = os.getenv("AI_SELF_HEALING", "true").lower() == "true"
+    AI_FAILURE_ANALYSIS = os.getenv("AI_FAILURE_ANALYSIS", "true").lower() == "true"
+    TRACES_DIR = os.getenv("TRACES_DIR", "reports/traces")
+    VIDEOS_DIR = os.getenv("VIDEOS_DIR", "reports/videos_failures")
+
