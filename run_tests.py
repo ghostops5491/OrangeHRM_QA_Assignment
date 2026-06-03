@@ -6,26 +6,41 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from config.config import Config
 
 
-def run_feature(feature_file: str, tags: str = None) -> int:
-    """Run a single feature file in a behave subprocess and log output."""
-    cmd = [sys.executable, "-m", "behave", feature_file]
+def run_target(target: str, tags: str = None) -> int:
+    """Run a single feature or scenario in a behave subprocess and log output."""
+    cmd = [sys.executable, "-m", "behave", target]
     
     if tags:
         cmd.extend(["--tags", tags])
     
-    cmd.extend(["--format", "allure_behave.formatter:AllureFormatter", "-o", Config.ALLURE_RESULTS_DIR])
+    # Generate a safe filename for the temporary rerun file
+    safe_name = target.replace("/", "_").replace("\\", "_").replace(":", "_").replace(".", "_")
+    temp_rerun = os.path.join("logs", f"rerun_{safe_name}.features")
+    
+    # Ensure logs directory exists
+    os.makedirs("logs", exist_ok=True)
+    
+    # Clear any existing temp rerun file for this target
+    if os.path.exists(temp_rerun):
+        try:
+            os.remove(temp_rerun)
+        except Exception:
+            pass
+            
+    cmd.extend([
+        "--format", "allure_behave.formatter:AllureFormatter", "-o", Config.ALLURE_RESULTS_DIR,
+        "--format", "rerun", "-o", temp_rerun
+    ])
     
     # We redirect output to avoid console interleaving
     result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     
     # Write output to log file
     log_dir = "logs"
-    os.makedirs(log_dir, exist_ok=True)
-    feature_name = os.path.basename(feature_file).replace(".feature", "")
-    log_path = os.path.join(log_dir, f"{feature_name}.log")
+    log_path = os.path.join(log_dir, f"{safe_name}.log")
     
     with open(log_path, "w", encoding="utf-8") as log_file:
-        log_file.write(f"=== FEATURE RUN: {feature_file} ===\n")
+        log_file.write(f"=== TARGET RUN: {target} ===\n")
         log_file.write(f"Command run: {' '.join(cmd)}\n")
         log_file.write(f"Exit code: {result.returncode}\n\n")
         log_file.write("=== STDOUT ===\n")
@@ -36,14 +51,23 @@ def run_feature(feature_file: str, tags: str = None) -> int:
     return result.returncode
 
 
-def run_tests_sequential(tags: str = None) -> int:
-    """Run all Behave tests sequentially (standard behave execution)."""
+def run_tests_sequential(tags: str = None, rerun_only: bool = False) -> int:
+    """Run Behave tests sequentially (standard behave execution)."""
     cmd = [sys.executable, "-m", "behave"]
     
-    if tags:
+    if rerun_only:
+        rerun_file = "rerun_failed.features"
+        if not os.path.exists(rerun_file) or os.path.getsize(rerun_file) == 0:
+            print("No failed scenarios to rerun.")
+            return 0
+        cmd.append(f"@{rerun_file}")
+    elif tags:
         cmd.extend(["--tags", tags])
     
-    cmd.extend(["--format", "allure_behave.formatter:AllureFormatter", "-o", Config.ALLURE_RESULTS_DIR])
+    cmd.extend([
+        "--format", "allure_behave.formatter:AllureFormatter", "-o", Config.ALLURE_RESULTS_DIR,
+        "--format", "rerun", "-o", "rerun_failed.features"
+    ])
     
     os.makedirs(Config.ALLURE_RESULTS_DIR, exist_ok=True)
     print(f"Running tests sequentially with command: {' '.join(cmd)}")
@@ -51,56 +75,98 @@ def run_tests_sequential(tags: str = None) -> int:
     return result.returncode
 
 
-def run_tests_parallel(tags: str = None, workers: int = None) -> int:
-    """Run all Behave feature files concurrently in separate processes."""
+def run_tests_parallel(tags: str = None, workers: int = None, rerun_only: bool = False) -> int:
+    """Run Behave features or failed scenarios concurrently in separate processes."""
     os.makedirs(Config.ALLURE_RESULTS_DIR, exist_ok=True)
     
-    features = glob.glob("features/**/*.feature", recursive=True)
-    if not features:
-        print("Error: No feature files found in features/ directory.")
-        return 1
-        
+    if rerun_only:
+        rerun_file = "rerun_failed.features"
+        if not os.path.exists(rerun_file) or os.path.getsize(rerun_file) == 0:
+            print("No failed scenarios to rerun.")
+            return 0
+        with open(rerun_file, "r", encoding="utf-8") as f:
+            targets = [line.strip() for line in f if line.strip()]
+        if not targets:
+            print("No failed scenarios to rerun.")
+            return 0
+    else:
+        targets = glob.glob("features/**/*.feature", recursive=True)
+        if not targets:
+            print("Error: No feature files found in features/ directory.")
+            return 1
+            
     num_workers = workers if workers else Config.PARALLEL_WORKERS
-    print(f"Running {len(features)} feature files in parallel with {num_workers} workers...")
+    print(f"Running {len(targets)} targets in parallel with {num_workers} workers...")
     print("Individual logs will be saved to the 'logs/' directory.\n")
     
+    # Remove old temporary rerun files
+    os.makedirs("logs", exist_ok=True)
+    for f in glob.glob("logs/rerun_*.features"):
+        try:
+            os.remove(f)
+        except Exception:
+            pass
+            
     # We use ThreadPoolExecutor to run behave subprocesses in parallel
     results = {}
     with ThreadPoolExecutor(max_workers=num_workers) as executor:
-        futures = {executor.submit(run_feature, f, tags): f for f in features}
+        futures = {executor.submit(run_target, t, tags): t for t in targets}
         for future in as_completed(futures):
-            feature_file = futures[future]
+            target = futures[future]
             try:
                 exit_code = future.result()
-                results[feature_file] = exit_code
+                results[target] = exit_code
                 status = "PASSED" if exit_code == 0 else "FAILED"
-                print(f"[{status}] {feature_file}")
+                print(f"[{status}] {target}")
             except Exception as e:
-                print(f"[ERROR] {feature_file}: {e}")
-                results[feature_file] = 1
+                print(f"[ERROR] {target}: {e}")
+                results[target] = 1
                 
     # Print execution summary
     print("\n" + "=" * 50)
     print("Parallel Execution Summary")
     print("=" * 50)
     
-    failed_features = []
-    for f, ec in results.items():
+    failed_targets = []
+    for t, ec in results.items():
         status = "Passed" if ec == 0 else "Failed"
-        print(f"{f:<50} : {status}")
+        print(f"{t:<50} : {status}")
         if ec != 0:
-            feature_name = os.path.basename(f).replace(".feature", "")
-            failed_features.append(f"{f} (logs: logs/{feature_name}.log)")
+            safe_name = t.replace("/", "_").replace("\\", "_").replace(":", "_").replace(".", "_")
+            failed_targets.append(f"{t} (logs: logs/{safe_name}.log)")
             
     print("=" * 50)
     
-    if failed_features:
-        print("\nThe following features failed:")
-        for ff in failed_features:
-            print(f" - {ff}")
+    # Merge temporary rerun files into the master rerun_failed.features
+    temp_rerun_files = glob.glob("logs/rerun_*.features")
+    master_rerun = "rerun_failed.features"
+    all_failed_lines = []
+    for temp_file in temp_rerun_files:
+        if os.path.exists(temp_file):
+            with open(temp_file, "r", encoding="utf-8") as tf:
+                for line in tf:
+                    if line.strip():
+                        all_failed_lines.append(line.strip())
+                        
+    # Write unique failed lines back to master rerun file
+    with open(master_rerun, "w", encoding="utf-8") as mf:
+        for line in sorted(list(set(all_failed_lines))):
+            mf.write(f"{line}\n")
+            
+    # Clean up temporary rerun files
+    for temp_file in temp_rerun_files:
+        try:
+            os.remove(temp_file)
+        except Exception:
+            pass
+            
+    if failed_targets:
+        print("\nThe following targets failed:")
+        for ft in failed_targets:
+            print(f" - {ft}")
         return 1
         
-    print("\nAll feature files completed successfully.")
+    print("\nAll targets completed successfully.")
     return 0
 
 
@@ -123,14 +189,15 @@ if __name__ == "__main__":
     parser.add_argument("--report", action="store_true", help="Generate and open Allure report after tests")
     parser.add_argument("--parallel", action="store_true", help="Run tests in parallel")
     parser.add_argument("--workers", type=int, help="Number of parallel workers (overrides .env configuration)")
+    parser.add_argument("--rerun", action="store_true", help="Rerun only the failed test cases from the last run")
     
     args = parser.parse_args()
     
     try:
         if args.parallel:
-            exit_code = run_tests_parallel(args.tags, args.workers)
+            exit_code = run_tests_parallel(args.tags, args.workers, args.rerun)
         else:
-            exit_code = run_tests_sequential(args.tags)
+            exit_code = run_tests_sequential(args.tags, args.rerun)
             
         if args.report or Config.AUTO_OPEN_REPORT:
             generate_allure_report()

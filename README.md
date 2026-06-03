@@ -136,3 +136,66 @@ To generate and view Allure reports from existing results manually:
 ```bash
 allure serve reports/allure-results
 ```
+
+---
+
+## Rerunning Failed Tests
+
+When tests fail, the specific failing scenarios are automatically tracked and logged to `rerun_failed.features`. You can execute only those failing scenarios in subsequent runs.
+
+* **Rerun failed tests sequentially**:
+  ```bash
+  python run_tests.py --rerun
+  ```
+
+* **Rerun failed tests in parallel**:
+  ```bash
+  python run_tests.py --rerun --parallel
+  ```
+
+* **Rerun and open Allure report**:
+  ```bash
+  python run_tests.py --rerun --report
+  ```
+
+*Note: When a rerun run executes successfully with no failures, the `rerun_failed.features` file is automatically cleared.*
+
+---
+
+## 🔬 QA & Automation Approach Summary
+
+Our approach focuses on modern, scalable engineering practices to build a robust BDD framework that addresses common test automation pain points:
+* **Behavior-Driven Development (BDD)**: By utilizing `behave` Gherkin specifications, the test suite serves as both executable tests and living documentation that is accessible to cross-functional stakeholders.
+* **Modern Engine (Playwright)**: We chose Playwright Python over Selenium for its fast execution, native out-of-the-box browser contexts (enabling clean isolation), automatic waiting mechanism, and rich execution tracing.
+* **Resilience against Flakiness**:
+  * **AI Self-Healing Locators**: Built-in integration with Google Gemini analyzes DOM structures dynamically to find alternative selectors when elements shift during UI updates.
+  * **AI Failure Analysis**: Provides a human-readable diagnosis of test failures, attached directly to Allure reports to reduce debugging overhead.
+  * **Smart Retries**: Implements automatic runtime retries on scenario failures to mitigate transient issues.
+* **Optimized Execution Speed**: Concurrency is implemented at the feature-file level using a parallel runner, helping run regression cycles efficiently.
+
+---
+
+## 🏷️ Test Tagging & Classification Strategy
+
+To manage test scope and regression speed, scenarios are tagged with the following categories:
+* **`@smoke`**: Essential health check scenarios (e.g., successful login, simple admin search, successful logout). Smoke tests run on every commit or post-deployment to verify core paths within < 2 minutes.
+* **`@regression`**: Comprehensive suite validating boundaries, edge cases, negative validations, and deep module interactions. Runs on a nightly basis or pre-release.
+* **`@SIT` (System Integration Testing)**: Scenarios that cross system and module boundaries, verifying end-to-end integration (e.g., verifying how a change in PIM reflects in Admin, or cross-page flows).
+
+---
+
+## 📌 Assumptions & Limitations
+
+* **Public Demo Sandbox**: The OrangeHRM demo site is a shared public instance. It frequently resets, and other global users may modify or delete test data during runs.
+* **API Authentication Fallback**: The framework supports API login and cookie injection to bypass slow UI login flows. However, due to CSRF tokens and bot protection limits on the public environment, a UI login fallback is active.
+* **Static Credentials**: The framework assumes that the default credentials (`Admin` / `admin123`) remain constant in the test environment.
+* **No Direct DB Access**: There is no database access to seed or clean up test data. Data cleanup must be managed via UI/API or by running tests in isolated sandboxes.
+
+---
+
+## 🚀 Suggested Improvements
+
+1. **Staging Environment Deployment**: Run tests against a private, stable staging environment with database control to eliminate external data mutation risks.
+2. **CI/CD Integration**: Embed `run_tests.py` into a GitHub Actions or GitLab CI/CD workflow, generating static Allure reports hosted via GitHub Pages.
+3. **Database Seeding and Teardown Hook**: Implement database query hooks to seed users and clean them up after test execution rather than relying on UI automation for prerequisites.
+4. **Visual Testing (Pixel-by-Pixel Verification)**: Integrate a visual validation tool (like Percy or Applitools) to verify visual layout consistency across multiple screen resolutions.
